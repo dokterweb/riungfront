@@ -44,12 +44,22 @@ class TelegramBotController extends Controller
                 return $this->handleRapel_usl($chatId, $worker);
             case 'cutitahunan':
                 return $this->handleCutiTahunan($chatId, $worker); 
-            case 'formtemplate':
-                return $this->handleFormTemplate($chatId, $worker); 
+            case 'formsurattugas':
+                return $this->handleFormSuratTugas($chatId, $worker); 
             case 'surataktif':
                 return $this->handleSuratAktif($chatId, $worker); 
             case 'suratpromosi':
                 return $this->handleSuratPromosi($chatId, $worker); 
+
+            case 'requestform_lain':
+                return $this->handleRequestFormLain($chatId);
+            // Permintaan Surat
+            case 'permintaan_surat':
+                return $this->showPermintaanSurat($chatId);
+            case 'permintaan_form':
+                return $this->showPermintaanForm($chatId);
+           
+
             default:
                 $telegram->sendMessage([
                     'chat_id' => $chatId,
@@ -314,28 +324,98 @@ class TelegramBotController extends Controller
         }
     }
 
-    public function handleFormTemplate($chatId, $worker)
+    public function handleFormSuratTugas($chatId, $worker)
     {
-        // Mengambil data formtemplates dari database
-        $formTemplates = FormTemplate::all();
-        
-        // Menyiapkan pesan untuk mengirim ke Telegram
-        $message = "Berikut adalah daftar formtemplates yang tersedia:\n\n";
-        
-        // Loop melalui setiap formTemplate dan menambahkannya ke pesan
-        foreach ($formTemplates as $formTemplate) {
-            $message .= "Nama Form: " . $formTemplate->nama_file . "\n";
-            $message .= "File: " . $formTemplate->form_file . "\n";
-            $message .= "Keterangan: " . $formTemplate->keterangan . "\n\n";
+        // Mengambil data formtemplate dengan id = 1
+        $fsurattugas = FormTemplate::find(1);
+    
+        // Mengecek apakah formTemplate ditemukan
+        if ($fsurattugas) {
+            // Menyiapkan pesan untuk mengirim ke Telegram
+            $message = "Berikut adalah detail form template yang tersedia:\n\n";
+            $message .= "Nama Form: " . $fsurattugas->nama_file . "\n";
+            $message .= "File: " . $fsurattugas->form_file . "\n";
+            $message .= "Keterangan: " . $fsurattugas->keterangan . "\n\n";
+    
+            // Mengirimkan pesan ke Telegram
+            $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+            $telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => $message
+            ]);
+        } else {
+            // Jika formTemplate tidak ditemukan
+            $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+            $telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "Form template dengan ID 1 tidak ditemukan."
+            ]);
         }
-
-        // Mengirimkan pesan ke Telegram
+    }
+    
+    public function handleRequestFormLain($chatId)
+    {
+        // Minta keterangan dari karyawan
         $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
         $telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => $message
+            'text' => "Silakan masukkan keterangan untuk permintaan Form.",
         ]);
+
+        // Menunggu keterangan dari pengguna
+        // Anda dapat menggunakan state machine atau langsung menggunakan metode lain
+        $this->listenForKeteranganForm($chatId);
     }
+
+    public function listenForKeteranganForm($chatId)
+{
+    $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+
+    // Tunggu pesan dari user
+    $update = $telegram->getWebhookUpdate();
+    Log::info('Webhook update diterima: ' . json_encode($update));
+
+    if ($update->has('message')) {
+        $message = $update->getMessage();
+        $keterangan = $message->getText(); // Keterangan dari user
+
+        Log::info('Pesan keterangan diterima: ' . $keterangan);
+
+        // Ambil nomor HP karyawan berdasarkan chat_id
+        $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
+        if ($telegramUser) {
+            // Ambil worker_id berdasarkan nomor HP Telegram
+            $worker = $telegramUser->worker()->first();
+            if ($worker) {
+                // Simpan permintaan form ke database
+                $requestForm = new Formlain();
+                $requestForm->worker_id = $worker->id;
+                $requestForm->tgl_mintaform = now(); // Tanggal saat permintaan
+                $requestForm->keterangan = $keterangan; // Keterangan yang diinput
+                $requestForm->save();
+
+                Log::info('Permintaan form berhasil disimpan untuk worker_id: ' . $worker->id);
+
+                // Kirim konfirmasi ke karyawan
+                $telegram->sendMessage([
+                    'chat_id' => $chatId,
+                    'text' => "Permintaan form Anda telah diterima. Terima kasih.",
+                ]);
+            } else {
+                $telegram->sendMessage([
+                    'chat_id' => $chatId,
+                    'text' => "Karyawan tidak ditemukan, pastikan nomor HP Anda terverifikasi.",
+                ]);
+            }
+        } else {
+            $telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "Data Anda belum terverifikasi. Silakan kirim nomor HP terlebih dahulu.",
+            ]);
+        }
+    }
+}
+
 
     public function handleWebhook(Request $request)
     {
@@ -377,7 +457,7 @@ class TelegramBotController extends Controller
                     'text' => "Halo {$name}, pilih menu berikut:",
                     'reply_markup' => json_encode([
                         'inline_keyboard' => [
-                            [['text' => 'Surat Tugas', 'callback_data' => 'surat_tugas']],
+                            
                             [['text' => 'Surat Kerja', 'callback_data' => 'surat_kerja']],
                             [['text' => 'BPJS', 'callback_data' => 'bpjs']],
                             [['text' => 'Etiket', 'callback_data' => 'etiket']],
@@ -385,9 +465,12 @@ class TelegramBotController extends Controller
                             [['text' => 'Overtime', 'callback_data' => 'overtime']],
                             [['text' => 'Rapel USL', 'callback_data' => 'rapel_usl']],
                             [['text' => 'Cuti', 'callback_data' => 'cutitahunan']],
-                            [['text' => 'Surat Aktif', 'callback_data' => 'surataktif']],
-                            [['text' => 'Surat Tetap/Promsi', 'callback_data' => 'suratpromosi']],
-                            [['text' => 'Form Template', 'callback_data' => 'formtemplate']],
+                            // [['text' => 'Surat Aktif', 'callback_data' => 'surataktif']],
+                            
+                            
+                            // Permintaan Surat
+                            [['text' => 'A. Permintaan Surat', 'callback_data' => 'permintaan_surat']],
+                            [['text' => 'B. Permintaan Form', 'callback_data' => 'permintaan_form']],
                         ]
                     ])
                 ]);
@@ -401,8 +484,41 @@ class TelegramBotController extends Controller
     
         return response()->json(['status' => 'ok']);
     }
-        
     
+    public function showPermintaanSurat($chatId)
+    {
+        $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+        $telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => "Pilih jenis surat yang Anda butuhkan:",
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [['text' => 'Surat Keterangan Aktif Bekerja', 'callback_data' => 'surataktif']],
+                    [['text' => 'Surat Keputusan Tetap/Promosi', 'callback_data' => 'suratpromosi']],
+                    [['text' => 'Surat Penugasan Dinas', 'callback_data' => 'surat_tugas']],
+                    
+                ]
+            ])
+        ]);
+    }
+
+    public function showPermintaanForm($chatId)
+    {
+        $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+        $telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => "Pilih form yang Anda butuhkan:",
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [['text' => 'Form Pengajuan Surat Tugas', 'callback_data' => 'formsurattugas']],
+                    [['text' => 'Form Deklarasi Perjalanan Dinas', 'callback_data' => 'formdeklarasidinas']],
+                    [['text' => 'Form lain -lain', 'callback_data' => 'requestform_lain']],
+                ]
+            ])
+        ]);
+    }
+
+
     private function normalizePhoneNumber(string $phone): string
     {
         $phone = preg_replace('/[^0-9]/', '', $phone);

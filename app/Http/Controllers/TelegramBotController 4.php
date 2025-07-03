@@ -22,7 +22,6 @@ use App\Models\TelegramUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 
 class TelegramBotController extends Controller
 {
@@ -34,88 +33,56 @@ class TelegramBotController extends Controller
         switch ($callbackData) {
             case 'bpjs':
                 return $this->handleBpjs($chatId, $worker);
-            break;
             case 'etiket':
                 return $this->handleEtiket($chatId, $worker);
-            break;
             case 'surat_tugas':
                 return $this->handleSuratTugas($chatId, $worker);
-            break;
             case 'surat_kerja':
                 return $this->handleSuratKerja($chatId, $worker);
-            break;
             case 'gaji':
                 return $this->handleGaji($chatId, $worker);
-            break;
             case 'overtime':
                 return $this->handleOvertime($chatId, $worker);
-            break;
             case 'rapel_usl':
                 return $this->handleRapel_usl($chatId, $worker);
-            break;
             case 'cutitahunan':
                 return $this->handleCutiTahunan($chatId, $worker); 
-            break;
             case 'surataktif':
-                return $this->handleSuratAktif($chatId, $worker);
-            break; 
+                return $this->handleSuratAktif($chatId, $worker); 
             case 'suratpromosi':
                 return $this->handleSuratPromosi($chatId, $worker); 
-            break;
+
             case 'permintaan_surat':
                 return $this->showPermintaanSurat($chatId);
-            // case 'requestsurat_lain':
-            //     return $this->saveSuratLainRequest($chatId);
-            break;
             case 'requestsurat_lain':
-                // Kirim pesan untuk meminta keterangan
-                $telegram->sendMessage([
-                    'chat_id' => $chatId,
-                    'text' => "Silakan masukkan keterangan untuk permintaan Surat Lain.",
-                ]);
-                Cache::put('last_bot_message_' . $chatId, "Silakan masukkan keterangan untuk permintaan Surat Lain.", now()->addMinutes(10));
-            break;
+                return $this->handleRequestSuratLain($chatId);
             case 'listsuratlain':
                 return $this->handleSuratLainList($chatId);
-            break;
             case 'permintaan_form':
                 return $this->showPermintaanForm($chatId);
-            break;
             case 'formsurattugas':
-                return $this->handleFormSuratTugas($chatId, $worker);
-            break; 
+                return $this->handleFormSuratTugas($chatId, $worker); 
             case 'formdeklarasidinas':
                 return $this->handleFormDeklarasiDinas($chatId, $worker); 
-            break;
             case 'formcutibesar':
                 return $this->handleFormCutiBesar($chatId, $worker); 
-            break;
             case 'formizinluartanggungan':
                 return $this->handleFormIzinLuarTanggungan($chatId, $worker); 
-            break;
             case 'formubahrek':
                 return $this->handleformUbahRekKaryawan($chatId, $worker); 
-            break;
             case 'formkonsulmedis':
                 return $this->handleformKonsultasiMedis($chatId, $worker); 
-            break;
             case 'requestform_lain':
-                // return $this->handleRequestFormLain($chatId);
-                $telegram->sendMessage([
-                    'chat_id' => $chatId,
-                    'text' => "Silakan masukkan keterangan untuk permintaan Form Lain.",
-                ]);
-                Cache::put('last_bot_message_' . $chatId, "Silakan masukkan keterangan untuk permintaan Form Lain.", now()->addMinutes(10));
-            break;
+                return $this->handleRequestFormLain($chatId);
             // Menambahkan kasus untuk survey
             case 'survey':
                 return $this->handleSurveyChoice($chatId);
 
-                case 'survey_1':
-                case 'survey_2':
-                case 'survey_3':
-                case 'survey_4':
-                case 'survey_5':
+            case 'survey_1':
+            case 'survey_2':
+            case 'survey_3':
+            case 'survey_4':
+            case 'survey_5':
                 return $this->handleSurveyResponse($chatId, $callbackData);
 
             default:
@@ -685,156 +652,126 @@ class TelegramBotController extends Controller
     }
     
 
-    public function handleWebhook(Request $request)
-    {
-        $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
-        $update = $telegram->getWebhookUpdate();
-    
-        // Check for callback query
-        if ($update->has('callback_query')) {
-            $callbackQuery = $update->getCallbackQuery();
-            $chatId = $callbackQuery->getFrom()->getId();
-            $callbackData = $callbackQuery->getData();
-    
-            Log::info('CallbackQuery received from chat_id: ' . $chatId . ' with data: ' . $callbackData);
-    
-            $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
-            if ($telegramUser) {
-                $worker = $telegramUser->worker()->first();
-                if ($worker) {
-                    return $this->handleCallback($chatId, $callbackData, $worker);
-                }
+
+/*     public function listenForKeteranganForm($chatId)
+{
+    $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+
+    // Tunggu pesan dari user
+    $update = $telegram->getWebhookUpdate();
+    Log::info('Webhook update diterima: ' . json_encode($update));
+
+    if ($update->has('message')) {
+        $message = $update->getMessage();
+        $keterangan = $message->getText(); // Keterangan dari user
+
+        Log::info('Pesan keterangan diterima: ' . $keterangan);
+
+        // Ambil nomor HP karyawan berdasarkan chat_id
+        $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
+        if ($telegramUser) {
+            // Ambil worker_id berdasarkan nomor HP Telegram
+            $worker = $telegramUser->worker()->first();
+            if ($worker) {
+                // Simpan permintaan form ke database
+                $requestForm = new Formlain();
+                $requestForm->worker_id = $worker->id;
+                $requestForm->tgl_mintaform = now(); // Tanggal saat permintaan
+                $requestForm->keterangan = $keterangan; // Keterangan yang diinput
+                $requestForm->save();
+
+                Log::info('Permintaan form berhasil disimpan untuk worker_id: ' . $worker->id);
+
+                // Kirim konfirmasi ke karyawan
+                $telegram->sendMessage([
+                    'chat_id' => $chatId,
+                    'text' => "Permintaan form Anda telah diterima. Terima kasih.",
+                ]);
             } else {
                 $telegram->sendMessage([
                     'chat_id' => $chatId,
-                    'text' => "You need to verify your phone number first. Please send your phone number.",
+                    'text' => "Karyawan tidak ditemukan, pastikan nomor HP Anda terverifikasi.",
                 ]);
             }
+        } else {
+            $telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "Data Anda belum terverifikasi. Silakan kirim nomor HP terlebih dahulu.",
+            ]);
         }
-        // Check for regular message
-        elseif ($update->has('message')) {
-            $message = $update->getMessage();
-            $chatId = $message->getChat()->getId();
-            $text = $message->getText();
-    
-            Log::info('Message received from chat_id: ' . $chatId . ' with text: ' . $text);
-    
-            // Handle /start command
-            if ($text == '/start') {
-                $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
-                if ($telegramUser) {
-                    $worker = $telegramUser->worker()->first();
-                    if ($worker) {
-                        $this->showMainMenu($chatId);
-                    }
+    }
+} */
+public function handleWebhook(Request $request)
+{
+    $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+    $update = $telegram->getWebhookUpdate();
+
+    // Cek apakah ada callback query
+    if ($update->has('callback_query')) {
+        $callbackQuery = $update->getCallbackQuery();
+        $chatId = $callbackQuery->getFrom()->getId();
+        $callbackData = $callbackQuery->getData();
+
+        Log::info('CallbackQuery diterima dari chat_id: ' . $chatId . ' dengan data: ' . $callbackData);
+
+        // Ambil user dan pekerja terkait berdasarkan chat_id
+        $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
+        if ($telegramUser) {
+            $worker = $telegramUser->worker()->first();
+            if ($worker) {
+                return $this->handleCallback($chatId, $callbackData, $worker);
+            }
+        } else {
+            $telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "Anda belum terverifikasi, silakan kirim nomor HP Anda terlebih dahulu.",
+            ]);
+        }
+    }
+
+    // Cek apakah ada pesan biasa (pesan dari pengguna)
+    elseif ($update->has('message')) {
+        $message = $update->getMessage();
+        $chatId = $message->getChat()->getId();
+        $text = $message->getText();
+
+        Log::info('Pesan diterima dari chat_id: ' . $chatId . ' dengan pesan: ' . $text);  // Log pesan untuk debugging
+
+        // Jika pengguna mengetik /start
+        if ($text == '/start') {
+            // Kirim pesan untuk menampilkan menu utama
+            $this->showMainMenu($chatId);
+        } else {
+            // Periksa jika pengguna memilih "Surat Lain"
+            if ($text == 'Surat Lain') {
+                // Kirim pesan untuk meminta keterangan
+                $telegram->sendMessage([
+                    'chat_id' => $chatId,
+                    'text' => "Silakan masukkan keterangan untuk permintaan Surat Lain.",
+                ]);
+            } else {
+                // Jika keterangan diterima, simpan langsung ke database
+                if (!empty(trim($text))) {
+                    $this->saveSuratLainRequest($chatId, $text); // Menyimpan ke database
+                    $telegram->sendMessage([
+                        'chat_id' => $chatId,
+                        'text' => "Permintaan Surat Anda telah diterima. Terima kasih.",
+                    ]);
+                    // Kembali ke menu utama setelah data disimpan
+                    $this->showMainMenu($chatId);
                 } else {
                     $telegram->sendMessage([
                         'chat_id' => $chatId,
-                        'text' => "You need to verify your phone number first. Please send your phone number.",
+                        'text' => "Keterangan tidak valid. Silakan kirim keterangan yang sesuai.",
                     ]);
-                }
-            } else {
-                $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
-                
-                if ($telegramUser) {
-                    $worker = $telegramUser->worker()->first();
-                    $lastMessage = Cache::get('last_bot_message_' . $chatId, '');
-    
-                    // Handle Form Lain request
-                    if (str_contains($lastMessage, 'permintaan Form Lain')) {
-                        if (!empty(trim($text))) {
-                            $this->saveFormLainRequest($chatId, $text);
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "✅ Permintaan Form Lain berhasil disimpan!",
-                            ]);
-                            $this->showMainMenu($chatId);
-                        } else {
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "Keterangan tidak boleh kosong. Silakan coba lagi.",
-                            ]);
-                        }
-                    }
-                    // Handle Surat Lain request
-                    elseif (str_contains($lastMessage, 'permintaan Surat Lain')) {
-                        if (!empty(trim($text))) {
-                            $this->saveSuratLainRequest($chatId, $text);
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "✅ Permintaan Surat Lain berhasil disimpan!",
-                            ]);
-                            $this->showMainMenu($chatId);
-                        } else {
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "Keterangan tidak boleh kosong. Silakan coba lagi.",
-                            ]);
-                        }
-                    }
-                    // Handle phone number registration
-                    elseif (preg_match('/^\d+$/', $text)) {
-                        $phone = $this->normalizePhoneNumber($text);
-                        $worker = Worker::where('no_hp', $phone)->first();
-                        
-                        if ($worker) {
-                            TelegramUser::create([
-                                'telegram_chat_id' => $chatId,
-                                'worker_id' => $worker->id,
-                            ]);
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "Nomor HP terverifikasi. Anda sekarang terdaftar di sistem.",
-                            ]);
-                            $this->showMainMenu($chatId);
-                        } else {
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "Nomor HP Anda tidak terdaftar. Silakan hubungi admin.",
-                            ]);
-                        }
-                    }
-                    // Unknown command
-                    else {
-                        $telegram->sendMessage([
-                            'chat_id' => $chatId,
-                            'text' => "Perintah tidak dikenali. Silakan pilih menu yang tersedia.",
-                        ]);
-                    }
-                } else {
-                    // Handle unregistered users
-                    if (preg_match('/^\d+$/', $text)) {
-                        $phone = $this->normalizePhoneNumber($text);
-                        $worker = Worker::where('no_hp', $phone)->first();
-                        
-                        if ($worker) {
-                            TelegramUser::create([
-                                'telegram_chat_id' => $chatId,
-                                'worker_id' => $worker->id,
-                            ]);
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "Nomor HP terverifikasi. Anda sekarang terdaftar di sistem.",
-                            ]);
-                            $this->showMainMenu($chatId);
-                        } else {
-                            $telegram->sendMessage([
-                                'chat_id' => $chatId,
-                                'text' => "Nomor HP Anda tidak terdaftar. Silakan hubungi admin.",
-                            ]);
-                        }
-                    } else {
-                        $telegram->sendMessage([
-                            'chat_id' => $chatId,
-                            'text' => "Silakan kirim nomor HP Anda untuk verifikasi.",
-                        ]);
-                    }
                 }
             }
         }
-    
-        return response()->json(['status' => 'ok']);
     }
+
+    return response()->json(['status' => 'ok']);
+}
+
 
 public function saveFormLainRequest($chatId, $keterangan)
 {
@@ -932,7 +869,7 @@ public function showMainMenu($chatId)
                     [['text' => 'Surat Keputusan Tetap/Promosi', 'callback_data' => 'suratpromosi']],
                     [['text' => 'Surat Penugasan Dinas', 'callback_data' => 'surat_tugas']],
                     [['text' => 'Daftar Surat Lain', 'callback_data' => 'listsuratlain']],
-                    [['text' => 'Request Surat Lain', 'callback_data' => 'requestsurat_lain']], //di panggil di sini 
+                    [['text' => 'Surat Lain (request)', 'callback_data' => 'requestsurat_lain']], //di panggil di sini 
                     
                 ]
             ])
@@ -953,11 +890,12 @@ public function showMainMenu($chatId)
                     [['text' => 'From Pengajuan Izin Diluar Tanggungan Perusahaan', 'callback_data' => 'formizinluartanggungan']],
                     [['text' => 'Form Perubahan Rek. Karyawan', 'callback_data' => 'formubahrek']],
                     [['text' => 'Form Konsultas Medis', 'callback_data' => 'formkonsulmedis']],
-                    [['text' => 'Request Form Lain', 'callback_data' => 'requestform_lain']],
+                    [['text' => 'Form Lain', 'callback_data' => 'requestform_lain']],
                 ]
             ])
         ]);
     }
+
 
     private function normalizePhoneNumber(string $phone): string
     {
@@ -970,11 +908,6 @@ public function showMainMenu($chatId)
         return $phone;
     }
 
-    private function getLastBotMessage($chatId)
-    {
-        // Implementasi untuk mendapatkan pesan terakhir yang dikirim oleh bot ke chat ini
-        // Ini bisa dengan menyimpan pesan terakhir di database atau cache
-        // Contoh sederhana (gunakan database atau cache untuk implementasi nyata):
-        return Cache::get('last_bot_message_' . $chatId, '');
-    }
+  
+    
 }

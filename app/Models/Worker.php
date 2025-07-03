@@ -20,4 +20,20 @@ class Worker extends Model
     {
         return $this->belongsTo(User::class, 'user_id');
     }
+
+    public function formlains()
+    {
+        return $this->hasMany(Formlain::class);
+    }
+
+    public function suratlains()
+    {
+        return $this->hasMany(Suratlain::class);
+    }
+    
+    public function surveys()
+    {
+        return $this->hasMany(Survey::class, 'worker_id');  // Relasi ke Survey
+    }
+    
 }
