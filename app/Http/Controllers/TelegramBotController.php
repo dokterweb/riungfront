@@ -99,6 +99,9 @@ class TelegramBotController extends Controller
             case 'formkonsulmedis':
                 return $this->handleformKonsultasiMedis($chatId, $worker); 
             break;
+            case 'listformlain':
+                return $this->handleFormLainList($chatId);
+            break;
             case 'requestform_lain':
                 // return $this->handleRequestFormLain($chatId);
                 $telegram->sendMessage([
@@ -366,10 +369,12 @@ class TelegramBotController extends Controller
     
         $cuti = CutiTahunan::where('worker_id', $worker->id)->first();
         if ($cuti) {
+            $formattedDate = Carbon::parse($cuti->tgl_cutiterakhir)->format('d-m-Y');
             $message = "Berikut adalah Cuti Tahunan Anda:\n";
             $message .= "Jatah Cuti: {$cuti->jatahcuti}\n";
-            $message .= "Sisa Cuti: {$cuti->sisacuti}\n";
             $message .= "Telah Cuti: {$cuti->telahcuti}\n";
+            $message .= "Sisa Cuti: {$cuti->sisacuti}\n";
+            $message .= "Tanggal Terakhir Cuti: $formattedDate\n";
             $telegram->sendMessage([
                 'chat_id' => $chatId,
                 'text' => $message,
@@ -412,43 +417,86 @@ class TelegramBotController extends Controller
     }
    
     public function handleSuratLainList($chatId)
-    {
-        // Mengambil worker_id berdasarkan chat_id
-        $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
-        
-        // Pastikan user ditemukan
-        if ($telegramUser) {
-            // Mengambil data suratlain berdasarkan worker_id yang sesuai
-            $suratLains = SuratLain::where('worker_id', $telegramUser->worker_id)->get();
-            
-            if ($suratLains->isEmpty()) {
-                return response()->json([
-                    'status' => 'no_data',
-                    'message' => 'Tidak ada surat lain yang ditemukan.'
-                ]);
-            }
+{
+    // Mengambil worker_id berdasarkan chat_id
+    $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
+    
+    // Pastikan user ditemukan
+    if ($telegramUser) {
+        // Mengambil data surat lain berdasarkan worker_id yang sesuai, urutkan berdasarkan id terbaru (descending)
+        $suratLain = SuratLain::where('worker_id', $telegramUser->worker_id)
+                              ->latest() // Mengambil data dengan id terbaru
+                              ->first(); // Hanya mengambil satu data terbaru
 
-            // Jika data ditemukan, kirimkan ke pengguna
-            $message = "Daftar Surat Lain:\n\n";
-            foreach ($suratLains as $surat) {
-                $message .= "Nama Surat: " . $surat->suratlain_file . "\n";
-                $message .= "Keterangan: " . $surat->keterangan . "\n\n";
-            }
-
-            $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
-            $telegram->sendMessage([
-                'chat_id' => $chatId,
-                'text' => $message
-            ]);
-
-            return response()->json(['status' => 'ok']);
-        } else {
+        // Cek apakah ada surat lain
+        if (!$suratLain) {
             return response()->json([
-                'status' => 'error',
-                'message' => 'User tidak ditemukan.'
+                'status' => 'no_data',
+                'message' => 'Tidak ada surat lain yang ditemukan.'
             ]);
         }
+
+        // Jika data ditemukan, kirimkan ke pengguna
+        $message = "Surat Lain Terbaru:\n\n";
+        $message .= "Nama Surat: " . $suratLain->suratlain_file . "\n";
+        $message .= "Keterangan: " . $suratLain->keterangan . "\n\n";
+
+        $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+        $telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => $message
+        ]);
+
+        return response()->json(['status' => 'ok']);
+    } else {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'User tidak ditemukan.'
+        ]);
     }
+}
+
+
+public function handleFormLainList($chatId)
+{
+    // Mengambil worker_id berdasarkan chat_id
+    $telegramUser = TelegramUser::where('telegram_chat_id', $chatId)->first();
+    
+    // Pastikan user ditemukan
+    if ($telegramUser) {
+        // Mengambil data form lain berdasarkan worker_id yang sesuai, urutkan berdasarkan id terbaru (descending)
+        $formLain = Formlain::where('worker_id', $telegramUser->worker_id)
+                              ->latest() // Mengambil data dengan id terbaru
+                              ->first(); // Hanya mengambil satu data terbaru
+
+        // Cek apakah ada form lain
+        if (!$formLain) {
+            return response()->json([
+                'status' => 'no_data',
+                'message' => 'Tidak ada form lain yang ditemukan.'
+            ]);
+        }
+
+        // Jika data ditemukan, kirimkan ke pengguna
+        $message = "form Lain Terbaru:\n\n";
+        $message .= "Nama form: " . $formLain->formlain_file . "\n";
+        $message .= "Tanggal Request: " . $formLain->tgl_mintaform . "\n";
+        $message .= "Keterangan: " . $formLain->keterangan . "\n\n";
+
+        $telegram = new Api(env('TELEGRAM_BOT_TOKEN'));
+        $telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => $message
+        ]);
+
+        return response()->json(['status' => 'ok']);
+    } else {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'User tidak ditemukan.'
+        ]);
+    }
+}
 
 
     public function handleFormDeklarasiDinas($chatId, $worker)
@@ -629,11 +677,13 @@ class TelegramBotController extends Controller
             'text' => "Pilih salah satu opsi survey (1-5):",
             'reply_markup' => json_encode([
                 'inline_keyboard' => [
-                    [['text' => '1', 'callback_data' => 'survey_1']],
-                    [['text' => '2', 'callback_data' => 'survey_2']],
-                    [['text' => '3', 'callback_data' => 'survey_3']],
-                    [['text' => '4', 'callback_data' => 'survey_4']],
-                    [['text' => '5', 'callback_data' => 'survey_5']],
+                    [
+                        ['text' => '😡', 'callback_data' => 'survey_1'],  // 😡 = 1
+                        ['text' => '😞', 'callback_data' => 'survey_2'],  // 😞 = 2
+                        ['text' => '😐', 'callback_data' => 'survey_3'],  // 😐 = 3
+                        ['text' => '😊', 'callback_data' => 'survey_4'],  // 😊 = 4
+                        ['text' => '😁', 'callback_data' => 'survey_5'],  // 😁 = 5
+                    ]
                 ]
             ])
         ]);
@@ -953,6 +1003,7 @@ public function showMainMenu($chatId)
                     [['text' => 'From Pengajuan Izin Diluar Tanggungan Perusahaan', 'callback_data' => 'formizinluartanggungan']],
                     [['text' => 'Form Perubahan Rek. Karyawan', 'callback_data' => 'formubahrek']],
                     [['text' => 'Form Konsultas Medis', 'callback_data' => 'formkonsulmedis']],
+                    [['text' => 'Daftar Form Lain', 'callback_data' => 'listformlain']],
                     [['text' => 'Request Form Lain', 'callback_data' => 'requestform_lain']],
                 ]
             ])
