@@ -36,4 +36,9 @@ class Worker extends Model
         return $this->hasMany(Survey::class, 'worker_id');  // Relasi ke Survey
     }
     
+    public function telegramUser()
+    {
+        return $this->hasOne(TelegramUser::class, 'worker_id', 'id');
+    }
+
 }

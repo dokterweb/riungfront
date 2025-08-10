@@ -18,4 +18,6 @@ class TelegramUser extends Model
     {
         return $this->belongsTo(Worker::class);
     }
+
+    
 }
